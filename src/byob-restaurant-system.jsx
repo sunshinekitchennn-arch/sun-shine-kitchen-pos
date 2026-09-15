@@ -472,9 +472,16 @@ function KitchenTicketModal({ ticket, onClose }) {
           {ticket.customerPhone && <div>Phone: {ticket.customerPhone}</div>}
           <div style={{ borderTop: "1px dashed #999", margin: "8px 0" }} />
           {ticket.items.map((i, idx) => (
-            <div key={idx} style={{ display: "flex", gap: 8, padding: "4px 0", fontSize: 14 }}>
-              <span style={{ fontWeight: 700, width: 24 }}>{i.qty}×</span>
-              <span>{i.name}</span>
+            <div key={idx} style={{ padding: "4px 0" }}>
+              <div style={{ display: "flex", gap: 8, fontSize: 14 }}>
+                <span style={{ fontWeight: 700, width: 24 }}>{i.qty}×</span>
+                <span>{i.name}</span>
+              </div>
+              {i.note && (
+                <div style={{ marginLeft: 24, fontSize: 13, fontWeight: 700, border: "1px solid #111", borderRadius: 4, padding: "2px 6px", display: "inline-block", marginTop: 2 }}>
+                  ⚠ {i.note}
+                </div>
+              )}
             </div>
           ))}
           <div style={{ borderTop: "1px dashed #999", margin: "10px 0" }} />
@@ -824,8 +831,16 @@ function POSTab({ tables, setTables, menu, orders, setOrders, corkageFee, servic
     const items = [...openRound.items];
     const existing = items.find(i => i.menuItemId === menuItem.id);
     if (existing) existing.qty += 1;
-    else items.push({ menuItemId: menuItem.id, name: menuItem.name, price: menuItem.price, qty: 1, type: menuItem.type });
+    else items.push({ menuItemId: menuItem.id, name: menuItem.name, price: menuItem.price, qty: 1, type: menuItem.type, note: "" });
     const newRounds = rounds.map(r => r.id === openRound.id ? { ...r, items } : r);
+    updateOrder({ rounds: newRounds });
+  }
+
+  function updateItemNote(roundId, menuItemId, note) {
+    const newRounds = activeOrder.rounds.map(r => {
+      if (r.id !== roundId) return r;
+      return { ...r, items: r.items.map(i => i.menuItemId === menuItemId ? { ...i, note } : i) };
+    });
     updateOrder({ rounds: newRounds });
   }
 
@@ -1145,10 +1160,13 @@ function POSTab({ tables, setTables, menu, orders, setOrders, corkageFee, servic
                     )}
                   </div>
                   {r.items.map(i => (
-                    <div key={i.menuItemId} style={{ display: "flex", fontSize: 12.5, padding: "2px 0", color: "#ffffffcc" }}>
-                      <span style={{ width: 22 }}>{i.qty}×</span>
-                      <span style={{ flex: 1 }}>{i.name}</span>
-                      <span style={{ fontFamily: monoFont }}>{rs(i.price * i.qty)}</span>
+                    <div key={i.menuItemId} style={{ padding: "2px 0" }}>
+                      <div style={{ display: "flex", fontSize: 12.5, color: "#ffffffcc" }}>
+                        <span style={{ width: 22 }}>{i.qty}×</span>
+                        <span style={{ flex: 1 }}>{i.name}</span>
+                        <span style={{ fontFamily: monoFont }}>{rs(i.price * i.qty)}</span>
+                      </div>
+                      {i.note && <div style={{ fontSize: 11, color: C.gold, marginLeft: 22, fontStyle: "italic" }}>Note: {i.note}</div>}
                     </div>
                   ))}
                 </div>
@@ -1159,12 +1177,24 @@ function POSTab({ tables, setTables, menu, orders, setOrders, corkageFee, servic
                 {firedRounds.length > 0 && <div style={{ fontSize: 11.5, fontWeight: 700, color: C.gold, marginBottom: 4 }}>New items — Round {firedRounds.length + 1}</div>}
                 {(!openRound || openRound.items.length === 0) && <div style={{ color: "#ffffff70", fontSize: 12.5 }}>No new items yet.</div>}
                 {openRound?.items.map(i => (
-                  <div key={i.menuItemId} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 0", fontSize: 12.5 }}>
-                    <button onClick={() => changeQty(openRound.id, i.menuItemId, -1)} style={iconBtnDark}><Minus size={10} /></button>
-                    <span style={{ fontFamily: monoFont, width: 16, textAlign: "center" }}>{i.qty}</span>
-                    <button onClick={() => changeQty(openRound.id, i.menuItemId, 1)} style={iconBtnDark}><Plus size={10} /></button>
-                    <span style={{ flex: 1, marginLeft: 4 }}>{i.name}</span>
-                    <span style={{ fontFamily: monoFont, color: "#ffffffcc" }}>{rs(i.price * i.qty)}</span>
+                  <div key={i.menuItemId} style={{ padding: "5px 0" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5 }}>
+                      <button onClick={() => changeQty(openRound.id, i.menuItemId, -1)} style={iconBtnDark}><Minus size={10} /></button>
+                      <span style={{ fontFamily: monoFont, width: 16, textAlign: "center" }}>{i.qty}</span>
+                      <button onClick={() => changeQty(openRound.id, i.menuItemId, 1)} style={iconBtnDark}><Plus size={10} /></button>
+                      <span style={{ flex: 1, marginLeft: 4 }}>{i.name}</span>
+                      <span style={{ fontFamily: monoFont, color: "#ffffffcc" }}>{rs(i.price * i.qty)}</span>
+                    </div>
+                    <input
+                      value={i.note || ""}
+                      onChange={e => updateItemNote(openRound.id, i.menuItemId, e.target.value)}
+                      placeholder="Note for kitchen (e.g. no onions, extra spicy)…"
+                      style={{
+                        width: "100%", marginTop: 3, marginLeft: 38, background: "#ffffff10", border: "1px solid #ffffff22",
+                        borderRadius: 5, color: "#F0DEC0", padding: "3px 7px", fontSize: 11, fontStyle: "italic",
+                        boxSizing: "border-box", maxWidth: "calc(100% - 38px)"
+                      }}
+                    />
                   </div>
                 ))}
                 {activeOrder.bottles > 0 && (
