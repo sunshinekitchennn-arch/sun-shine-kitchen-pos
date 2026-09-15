@@ -16,8 +16,9 @@ const btnStyle = { width: "100%", padding: "10px 0", borderRadius: 8, border: "n
 export default function App() {
   // /menu (or ?menu) shows the customer-facing menu with no login at all.
   const isPublicMenu = window.location.pathname === "/menu" || window.location.search.includes("menu");
+  const isTV = new URLSearchParams(window.location.search).get("tv") === "1";
   if (isPublicMenu) {
-    return <PublicMenu restaurantId={PUBLIC_RESTAURANT_ID} />;
+    return <PublicMenu restaurantId={PUBLIC_RESTAURANT_ID} tv={isTV} />;
   }
 
   return <StaffApp />;
