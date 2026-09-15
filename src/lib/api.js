@@ -31,7 +31,10 @@ export async function fetchMenu(restaurantId) {
 export async function createMenuItem(restaurantId, item) {
   const { data, error } = await supabase
     .from("menu_items")
-    .insert({ restaurant_id: restaurantId, name: item.name, category: item.category, type: item.type, price: item.price, is_available: true })
+    .insert({
+      restaurant_id: restaurantId, name: item.name, category: item.category, type: item.type,
+      price: item.price, is_available: true, is_special: item.isSpecial || false, image_url: item.imageUrl || null,
+    })
     .select().single();
   if (error) throw error;
   return data;
@@ -44,6 +47,8 @@ export async function updateMenuItem(id, patch) {
   if (patch.type !== undefined) dbPatch.type = patch.type;
   if (patch.price !== undefined) dbPatch.price = patch.price;
   if (patch.available !== undefined) dbPatch.is_available = patch.available;
+  if (patch.isSpecial !== undefined) dbPatch.is_special = patch.isSpecial;
+  if (patch.imageUrl !== undefined) dbPatch.image_url = patch.imageUrl;
   const { error } = await supabase.from("menu_items").update(dbPatch).eq("id", id);
   if (error) throw error;
 }
@@ -51,6 +56,72 @@ export async function updateMenuItem(id, patch) {
 export async function deleteMenuItem(id) {
   const { error } = await supabase.from("menu_items").delete().eq("id", id);
   if (error) throw error;
+}
+
+// Uploads a menu item photo to Supabase Storage and returns its public URL.
+// Call this first, then pass the returned url into createMenuItem/updateMenuItem
+// as `imageUrl`.
+export async function uploadMenuImage(file) {
+  const ext = file.name.split(".").pop();
+  const path = `${crypto.randomUUID()}.${ext}`;
+  const { error: uploadErr } = await supabase.storage.from("menu-images").upload(path, file);
+  if (uploadErr) throw uploadErr;
+  const { data } = supabase.storage.from("menu-images").getPublicUrl(path);
+  return data.publicUrl;
+}
+
+// ---------- ADD-ONS (extra meat/protein on rice, kottu, noodles) ----------
+export async function fetchAddons(restaurantId) {
+  const { data, error } = await supabase
+    .from("addons").select("*").eq("restaurant_id", restaurantId).eq("is_available", true).order("price");
+  if (error) throw error;
+  return data;
+}
+
+export async function createAddon(restaurantId, addon) {
+  const { data, error } = await supabase
+    .from("addons").insert({ restaurant_id: restaurantId, name: addon.name, price: addon.price })
+    .select().single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateAddon(id, patch) {
+  const dbPatch = {};
+  if (patch.name !== undefined) dbPatch.name = patch.name;
+  if (patch.price !== undefined) dbPatch.price = patch.price;
+  if (patch.available !== undefined) dbPatch.is_available = patch.available;
+  const { error } = await supabase.from("addons").update(dbPatch).eq("id", id);
+  if (error) throw error;
+}
+
+export async function deleteAddon(id) {
+  const { error } = await supabase.from("addons").delete().eq("id", id);
+  if (error) throw error;
+}
+
+// Public, no-login menu fetch for the customer-facing menu page.
+// Only returns available items, ordered so specials show first.
+export async function fetchPublicMenu(restaurantId) {
+  const { data, error } = await supabase
+    .from("menu_items")
+    .select("*")
+    .eq("restaurant_id", restaurantId)
+    .eq("is_available", true)
+    .order("is_special", { ascending: false })
+    .order("category");
+  if (error) throw error;
+  return data;
+}
+
+export async function fetchPublicRestaurant(restaurantId) {
+  const { data, error } = await supabase
+    .from("restaurants")
+    .select("name, address, phone")
+    .eq("id", restaurantId)
+    .single();
+  if (error) throw error;
+  return data;
 }
 
 // ---------- POOL TABLE ----------

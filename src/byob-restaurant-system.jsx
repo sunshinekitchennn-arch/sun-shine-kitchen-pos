@@ -5,7 +5,7 @@ import {
   Users, Clock, Receipt, Pencil, LayoutGrid, ShoppingBag, Printer,
   RotateCcw, History, Coffee, Lock, ChefHat, Flame, Undo2, LogOut
 } from "lucide-react";
-import { fetchTables, fetchMenu, saveBill, updateTableStatus, fetchBillsForDate, createMenuItem, updateMenuItem, deleteMenuItem, fetchReservations, createReservation, updateReservationStatus, deleteReservation } from "./lib/api";
+import { fetchTables, fetchMenu, saveBill, updateTableStatus, fetchBillsForDate, createMenuItem, updateMenuItem, deleteMenuItem, fetchReservations, createReservation, updateReservationStatus, deleteReservation, uploadMenuImage, fetchAddons } from "./lib/api";
 
 /* ---------------- Design tokens ---------------- */
 const C = {
@@ -162,6 +162,7 @@ export default function App({ restaurantId, cashierName: staffName, onLogout, on
   const [kitchenTicket, setKitchenTicket] = useState(null);
   const [cashierName, setCashierName] = useState(staffName || "");
   const [poolTables, setPoolTables] = useState([{ id: "pool1", name: "Pool Table", hourlyRate: 500, status: "available", activeOrderId: null, startedAt: null }]);
+  const [addons, setAddons] = useState([]);
 
   // Load this restaurant's real tables and menu from Supabase once, on login.
   // (Orders/bills are still handled locally for now — see project README for
@@ -170,13 +171,15 @@ export default function App({ restaurantId, cashierName: staffName, onLogout, on
     if (!restaurantId) return;
     let cancelled = false;
     setDataLoading(true);
-    Promise.all([fetchTables(restaurantId), fetchMenu(restaurantId), fetchBillsForDate(restaurantId, null), fetchReservations(restaurantId)])
-      .then(([tableRows, menuRows, billRows, reservationRows]) => {
+    Promise.all([fetchTables(restaurantId), fetchMenu(restaurantId), fetchBillsForDate(restaurantId, null), fetchReservations(restaurantId), fetchAddons(restaurantId).catch(() => [])])
+      .then(([tableRows, menuRows, billRows, reservationRows, addonRows]) => {
         if (cancelled) return;
+        setAddons(addonRows.map(a => ({ id: a.id, name: a.name, price: Number(a.price) })));
         setTables(tableRows.map(t => ({ id: t.id, number: t.number, seats: t.seats, status: t.status })));
         setMenu(menuRows.map(m => ({
           id: m.id, name: m.name, type: m.type || "Food", category: m.category,
-          price: Number(m.price), available: m.is_available,
+          price: Number(m.price), available: m.is_available, isSpecial: m.is_special || false,
+          imageUrl: m.image_url || null, allowsAddons: m.allows_addons || false,
         })));
         setReservations(reservationRows.map(r => ({
           id: r.id, name: r.guest_name, phone: r.phone || "", date: r.date, time: r.time,
@@ -345,7 +348,7 @@ export default function App({ restaurantId, cashierName: staffName, onLogout, on
             billHistory={billHistory} setBillHistory={setBillHistory} setReceipt={setReceipt}
             cashierName={cashierName} reservations={reservations} setReservations={setReservations}
             markRoundServed={markRoundServed} poolTables={poolTables} setPoolTables={setPoolTables}
-            setKitchenTicket={setKitchenTicket} restaurantId={restaurantId} />
+            setKitchenTicket={setKitchenTicket} restaurantId={restaurantId} addons={addons} />
         )}
         {tab === "kitchen" && (
           <KitchenTab orders={orders} markRoundServed={markRoundServed} undoRoundServed={undoRoundServed} setKitchenTicket={setKitchenTicket} />
@@ -765,7 +768,7 @@ function ReservationsTab({ tables, setTables, reservations, setReservations, ord
 }
 
 /* ---------------- POS / Orders ---------------- */
-function POSTab({ tables, setTables, menu, orders, setOrders, corkageFee, serviceChargePct, takeawayCounter, setTakeawayCounter, billHistory, setBillHistory, setReceipt, cashierName, reservations, setReservations, markRoundServed, poolTables, setPoolTables, setKitchenTicket, restaurantId }) {
+function POSTab({ tables, setTables, menu, orders, setOrders, corkageFee, serviceChargePct, takeawayCounter, setTakeawayCounter, billHistory, setBillHistory, setReceipt, cashierName, reservations, setReservations, markRoundServed, poolTables, setPoolTables, setKitchenTicket, restaurantId, addons }) {
   const [activeOrderId, setActiveOrderId] = useState(null);
   const activeOrder = orders.find(o => o.id === activeOrderId);
   const [menuFilter, setMenuFilter] = useState("All");
@@ -840,6 +843,28 @@ function POSTab({ tables, setTables, menu, orders, setOrders, corkageFee, servic
     const newRounds = activeOrder.rounds.map(r => {
       if (r.id !== roundId) return r;
       return { ...r, items: r.items.map(i => i.menuItemId === menuItemId ? { ...i, note } : i) };
+    });
+    updateOrder({ rounds: newRounds });
+  }
+
+  // Adds an extra-meat line right under the dish it belongs to, so both the
+  // kitchen ticket and the bill show clearly what was added to what.
+  function addAddonTo(roundId, parentItem, addon) {
+    const lineId = `${parentItem.menuItemId}::${addon.id}`;
+    const newRounds = activeOrder.rounds.map(r => {
+      if (r.id !== roundId) return r;
+      const items = [...r.items];
+      const existing = items.find(i => i.menuItemId === lineId);
+      if (existing) {
+        existing.qty += 1;
+      } else {
+        const parentIdx = items.findIndex(i => i.menuItemId === parentItem.menuItemId);
+        items.splice(parentIdx + 1, 0, {
+          menuItemId: lineId, name: `↳ ${addon.name} (${parentItem.name})`,
+          price: addon.price, qty: 1, type: parentItem.type, note: "", isAddon: true,
+        });
+      }
+      return { ...r, items };
     });
     updateOrder({ rounds: newRounds });
   }
@@ -1061,7 +1086,7 @@ function POSTab({ tables, setTables, menu, orders, setOrders, corkageFee, servic
                           textAlign: "left", padding: "10px 12px", borderRadius: 9, border: `1px solid ${C.line}`,
                           background: C.cream, cursor: "pointer"
                         }}>
-                          <div style={{ fontSize: 13, fontWeight: 600 }}>{m.name}</div>
+                          <div style={{ fontSize: 13, fontWeight: 600 }}>{m.isSpecial && "⭐ "}{m.name}</div>
                           <div style={{ fontSize: 11.5, color: C.slate, display: "flex", justifyContent: "flex-end", marginTop: 2 }}>
                             <span style={{ fontFamily: monoFont, color: C.gold, fontWeight: 700 }}>{rs(m.price)}</span>
                           </div>
@@ -1195,6 +1220,18 @@ function POSTab({ tables, setTables, menu, orders, setOrders, corkageFee, servic
                         boxSizing: "border-box", maxWidth: "calc(100% - 38px)"
                       }}
                     />
+                    {!i.isAddon && addons.length > 0 && menu.find(m => m.id === i.menuItemId)?.allowsAddons && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4, marginLeft: 38 }}>
+                        {addons.map(a => (
+                          <button key={a.id} onClick={() => addAddonTo(openRound.id, i, a)} style={{
+                            padding: "2px 7px", borderRadius: 10, border: "1px solid #ffffff2a",
+                            background: "transparent", color: "#D9C89A", fontSize: 10.5, cursor: "pointer",
+                          }} title={`Add ${a.name} — ${rs(a.price)}`}>
+                            + {a.name.replace(/^Extra /, "")} {rs(a.price)}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ))}
                 {activeOrder.bottles > 0 && (
@@ -1560,14 +1597,30 @@ function BillHistoryTab({ billHistory, setBillHistory, setReceipt }) {
 
 /* ---------------- Menu management ---------------- */
 function MenuTab({ menu, setMenu, restaurantId }) {
-  const [form, setForm] = useState({ name: "", type: "Food", category: "Mains", price: "" });
+  const [form, setForm] = useState({ name: "", type: "Food", category: "Mains", price: "", isSpecial: false, imageUrl: "" });
   const [editingId, setEditingId] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState(null);
   const catsByType = {
     Food: ["Appetizers & Bites", "Fried Rice Variety", "Traditional Rice & Curry", "Kottu Specialities", "Chef's Special Dishes"],
     Drinks: ["Soft Drinks & Sodas", "BYOB Mixers & Chasers", "Juices & Chillers", "BYOB Essentials"],
   };
+
+  async function handlePhotoSelect(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    setUploading(true);
+    setError(null);
+    try {
+      const url = await uploadMenuImage(file);
+      setForm(f => ({ ...f, imageUrl: url }));
+    } catch (err) {
+      setError(err.message || "Couldn't upload photo.");
+    } finally {
+      setUploading(false);
+    }
+  }
 
   async function addOrUpdate() {
     if (!form.name || !form.price) return;
@@ -1576,29 +1629,34 @@ function MenuTab({ menu, setMenu, restaurantId }) {
     try {
       if (editingId) {
         setMenu(menu.map(m => m.id === editingId ? { ...m, ...form, price: Number(form.price) } : m));
-        await updateMenuItem(editingId, { name: form.name, category: form.category, type: form.type, price: Number(form.price) });
+        await updateMenuItem(editingId, { name: form.name, category: form.category, type: form.type, price: Number(form.price), isSpecial: form.isSpecial, imageUrl: form.imageUrl || null });
         setEditingId(null);
       } else {
-        const created = await createMenuItem(restaurantId, { name: form.name, category: form.category, type: form.type, price: Number(form.price) });
-        setMenu([...menu, { id: created.id, name: created.name, type: created.type, category: created.category, price: Number(created.price), available: created.is_available }]);
+        const created = await createMenuItem(restaurantId, { name: form.name, category: form.category, type: form.type, price: Number(form.price), isSpecial: form.isSpecial, imageUrl: form.imageUrl || null });
+        setMenu([...menu, { id: created.id, name: created.name, type: created.type, category: created.category, price: Number(created.price), available: created.is_available, isSpecial: created.is_special, imageUrl: created.image_url }]);
       }
-      setForm({ name: "", type: "Food", category: "Mains", price: "" });
+      setForm({ name: "", type: "Food", category: "Mains", price: "", isSpecial: false, imageUrl: "" });
     } catch (err) {
       setError(err.message || "Couldn't save to the database — check your connection and try again.");
     } finally {
       setSaving(false);
     }
   }
-  function edit(m) { setForm({ name: m.name, type: m.type, category: m.category, price: m.price }); setEditingId(m.id); }
+  function edit(m) { setForm({ name: m.name, type: m.type, category: m.category, price: m.price, isSpecial: m.isSpecial || false, imageUrl: m.imageUrl || "" }); setEditingId(m.id); }
   async function remove(id) {
     setMenu(menu.filter(m => m.id !== id));
-    if (editingId === id) { setEditingId(null); setForm({ name: "", type: "Food", category: "Mains", price: "" }); }
+    if (editingId === id) { setEditingId(null); setForm({ name: "", type: "Food", category: "Mains", price: "", isSpecial: false, imageUrl: "" }); }
     try { await deleteMenuItem(id); } catch (err) { setError(err.message || "Couldn't delete from the database."); }
   }
   async function toggleAvailable(id) {
     const item = menu.find(m => m.id === id);
     setMenu(menu.map(m => m.id === id ? { ...m, available: !m.available } : m));
     try { await updateMenuItem(id, { available: !item.available }); } catch (err) { setError(err.message || "Couldn't update availability."); }
+  }
+  async function toggleSpecial(id) {
+    const item = menu.find(m => m.id === id);
+    setMenu(menu.map(m => m.id === id ? { ...m, isSpecial: !m.isSpecial } : m));
+    try { await updateMenuItem(id, { isSpecial: !item.isSpecial }); } catch (err) { setError(err.message || "Couldn't update special status."); }
   }
 
   return (
@@ -1617,9 +1675,14 @@ function MenuTab({ menu, setMenu, restaurantId }) {
                   <div style={{ fontWeight: 700, fontSize: 12, color: C.gold, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.4 }}>{cat}</div>
                   {menu.filter(m => m.type === type && m.category === cat).map(m => (
                     <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 0", borderBottom: `1px solid ${C.line}` }}>
+                      {m.imageUrl && <img src={m.imageUrl} alt="" style={{ width: 28, height: 28, borderRadius: 6, objectFit: "cover" }} />}
                       <span style={{ fontSize: 13.5, opacity: m.available ? 1 : 0.4 }}>{m.name}</span>
+                      {m.isSpecial && <span title="This week's special">⭐</span>}
                       {!m.available && <Pill tone="rust">86'd</Pill>}
                       <span style={{ marginLeft: "auto", fontFamily: monoFont, fontSize: 12.5, color: C.gold, fontWeight: 700 }}>{rs(m.price)}</span>
+                      <button onClick={() => toggleSpecial(m.id)} style={iconBtn} title="Toggle this week's special">
+                        <span style={{ fontSize: 12, opacity: m.isSpecial ? 1 : 0.3 }}>⭐</span>
+                      </button>
                       <button onClick={() => toggleAvailable(m.id)} style={iconBtn} title="Toggle availability"><Check size={12} color={m.available ? C.sage : C.slate} /></button>
                       <button onClick={() => edit(m)} style={iconBtn}><Pencil size={12} /></button>
                       <button onClick={() => remove(m.id)} style={iconBtn}><Trash2 size={12} color={C.rust} /></button>
@@ -1647,10 +1710,24 @@ function MenuTab({ menu, setMenu, restaurantId }) {
             </select>
           </Field>
           <Field label="Price (LKR)"><input type="number" style={inp} value={form.price} onChange={e => setForm({ ...form, price: e.target.value })} placeholder="1500" /></Field>
+
+          <Field label="Photo (optional)">
+            {form.imageUrl && (
+              <img src={form.imageUrl} alt="" style={{ width: "100%", height: 100, objectFit: "cover", borderRadius: 8, marginBottom: 6 }} />
+            )}
+            <input type="file" accept="image/*" onChange={handlePhotoSelect} disabled={uploading} style={{ fontSize: 12 }} />
+            {uploading && <div style={{ fontSize: 11.5, color: C.slate, marginTop: 4 }}>Uploading…</div>}
+          </Field>
+
+          <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, cursor: "pointer" }}>
+            <input type="checkbox" checked={form.isSpecial} onChange={e => setForm({ ...form, isSpecial: e.target.checked })} />
+            <span style={{ fontSize: 13 }}>⭐ Feature as this week's special</span>
+          </label>
+
           {error && <div style={{ color: C.rust, fontSize: 12, marginBottom: 8 }}>{error}</div>}
           <div style={{ display: "flex", gap: 8 }}>
             <Btn onClick={addOrUpdate} icon={editingId ? Check : Plus} disabled={saving}>{saving ? "Saving…" : editingId ? "Save changes" : "Add item"}</Btn>
-            {editingId && <Btn variant="ghost" onClick={() => { setEditingId(null); setForm({ name: "", type: "Food", category: "Mains", price: "" }); }}>Cancel</Btn>}
+            {editingId && <Btn variant="ghost" onClick={() => { setEditingId(null); setForm({ name: "", type: "Food", category: "Mains", price: "", isSpecial: false, imageUrl: "" }); }}>Cancel</Btn>}
           </div>
         </Card>
       </div>

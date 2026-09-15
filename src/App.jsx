@@ -1,6 +1,12 @@
 import { useState, useEffect } from "react";
 import { onAuthChange, signIn, signOut, getStaffProfile, getAuthLevel, listMfaFactors, enrollMfa, verifyMfaEnrollment, verifyMfaLogin, removeMfaFactor } from "./lib/auth";
 import BYOBRestaurantSystem from "./byob-restaurant-system.jsx";
+import PublicMenu from "./PublicMenu.jsx";
+
+// The restaurant's id, needed by the public menu page (which has no login,
+// so it can't look the id up from a staff profile). Safe to expose — the
+// public menu only ever reads available menu items and the address/phone.
+const PUBLIC_RESTAURANT_ID = import.meta.env.VITE_RESTAURANT_ID;
 
 const boxStyle = { display: "flex", height: "100vh", alignItems: "center", justifyContent: "center", fontFamily: "sans-serif", background: "#F4F1EC" };
 const cardStyle = { background: "#fff", padding: 32, borderRadius: 14, width: 340, boxShadow: "0 4px 24px rgba(0,0,0,0.08)" };
@@ -8,6 +14,16 @@ const inputStyle = { width: "100%", padding: "8px 10px", marginTop: 4, marginBot
 const btnStyle = { width: "100%", padding: "10px 0", borderRadius: 8, border: "none", background: "#5B7553", color: "#fff", fontWeight: 700, cursor: "pointer" };
 
 export default function App() {
+  // /menu (or ?menu) shows the customer-facing menu with no login at all.
+  const isPublicMenu = window.location.pathname === "/menu" || window.location.search.includes("menu");
+  if (isPublicMenu) {
+    return <PublicMenu restaurantId={PUBLIC_RESTAURANT_ID} />;
+  }
+
+  return <StaffApp />;
+}
+
+function StaffApp() {
   const [session, setSession] = useState(undefined);
   const [profile, setProfile] = useState(null);
   const [email, setEmail] = useState("");
