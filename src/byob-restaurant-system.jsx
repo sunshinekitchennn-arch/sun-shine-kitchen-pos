@@ -518,7 +518,7 @@ function Dashboard({ tables, reservations, orders, lowStock, todaysCorkage, toda
   const occupied = tables.filter(t => t.status === "occupied").length;
   const stats = [
     { label: "Tables occupied", value: `${occupied}/${tables.length}` },
-    { label: "Reservations today", value: reservations.length },
+    { label: "Reservations today", value: reservations.filter(r => r.date === todayStr() && r.status !== "cancelled").length },
     { label: "Open tickets", value: orders.length },
     { label: "Low stock items", value: lowStock.length, warn: true },
   ];
