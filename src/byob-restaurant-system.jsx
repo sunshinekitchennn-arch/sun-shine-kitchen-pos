@@ -57,7 +57,16 @@ const seedReservations = [];
 
 const uid = (p) => `${p}${Math.random().toString(36).slice(2, 8)}`;
 const rs = (n) => `Rs. ${Number(n || 0).toLocaleString("en-LK", { minimumFractionDigits: 0 })}`;
-const todayStr = () => new Date().toISOString().slice(0, 10);
+// Uses the browser's LOCAL date (Sri Lanka time on staff devices), not UTC —
+// toISOString() would give the wrong date between 12am-5:30am local time
+// since Sri Lanka is UTC+5:30.
+const todayStr = () => {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+};
 const fmtTime = (ts) => new Date(ts).toTimeString().slice(0, 5);
 
 /* ---------------- Small primitives ---------------- */
@@ -744,17 +753,25 @@ function ReservationsTab({ tables, setTables, reservations, setReservations, ord
 
           <div style={{ marginTop: 20, borderTop: `1px solid ${C.line}`, paddingTop: 14 }}>
             <div style={{ fontWeight: 700, fontSize: 13.5, marginBottom: 8 }}>Upcoming reservations</div>
-            {reservations.filter(r => r.status === "confirmed").length === 0 && <div style={{ color: C.slate, fontSize: 13 }}>No bookings yet.</div>}
-            {reservations.filter(r => r.status === "confirmed").map(r => (
-              <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", borderBottom: `1px solid ${C.line}` }}>
-                <Clock size={13} color={C.slate} />
-                <div style={{ fontSize: 13 }}>
-                  <div style={{ fontWeight: 600 }}>{r.name} · {r.size}p</div>
-                  <div style={{ color: C.slate, fontSize: 11.5 }}>{r.date} at {r.time}{r.tableId ? ` · Table ${tables.find(t => t.id === r.tableId)?.number}` : ""}</div>
+            {(() => {
+              const now = new Date();
+              const nowTime = String(now.getHours()).padStart(2, "0") + ":" + String(now.getMinutes()).padStart(2, "0");
+              const today = todayStr();
+              const upcoming = reservations
+                .filter(r => r.status === "confirmed" && (r.date > today || (r.date === today && r.time >= nowTime)))
+                .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
+              if (upcoming.length === 0) return <div style={{ color: C.slate, fontSize: 13 }}>No upcoming bookings.</div>;
+              return upcoming.map(r => (
+                <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", borderBottom: `1px solid ${C.line}` }}>
+                  <Clock size={13} color={C.slate} />
+                  <div style={{ fontSize: 13 }}>
+                    <div style={{ fontWeight: 600 }}>{r.name} · {r.size}p</div>
+                    <div style={{ color: C.slate, fontSize: 11.5 }}>{r.date} at {r.time}{r.tableId ? ` · Table ${tables.find(t => t.id === r.tableId)?.number}` : ""}</div>
+                  </div>
+                  <button onClick={() => cancelReservation(r.id)} style={{ marginLeft: "auto", background: "none", border: "none", cursor: "pointer" }}><X size={14} color={C.rust} /></button>
                 </div>
-                <button onClick={() => cancelReservation(r.id)} style={{ marginLeft: "auto", background: "none", border: "none", cursor: "pointer" }}><X size={14} color={C.rust} /></button>
-              </div>
-            ))}
+              ));
+            })()}
             {reservations.filter(r => r.status === "seated").length > 0 && (
               <div style={{ marginTop: 10, fontSize: 11.5, color: C.slate }}>
                 {reservations.filter(r => r.status === "seated").length} guest(s) already seated from bookings today.
