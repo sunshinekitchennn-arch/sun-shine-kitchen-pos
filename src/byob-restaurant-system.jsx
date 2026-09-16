@@ -3,7 +3,7 @@ import {
   Wine, UtensilsCrossed, CalendarClock, Package, ClipboardList, Truck,
   Plus, Minus, Trash2, Check, X, AlertTriangle, Search, ChevronRight,
   Users, Clock, Receipt, Pencil, LayoutGrid, ShoppingBag, Printer,
-  RotateCcw, History, Coffee, Lock, ChefHat, Flame, Undo2, LogOut
+  RotateCcw, History, Coffee, Lock, ChefHat, Flame, Undo2, LogOut, MessageCircle
 } from "lucide-react";
 import { fetchTables, fetchMenu, saveBill, updateTableStatus, fetchBillsForDate, createMenuItem, updateMenuItem, deleteMenuItem, fetchReservations, createReservation, updateReservationStatus, deleteReservation, uploadMenuImage, fetchAddons } from "./lib/api";
 
@@ -60,6 +60,14 @@ const rs = (n) => `Rs. ${Number(n || 0).toLocaleString("en-LK", { minimumFractio
 // Uses the browser's LOCAL date (Sri Lanka time on staff devices), not UTC —
 // toISOString() would give the wrong date between 12am-5:30am local time
 // since Sri Lanka is UTC+5:30.
+// Shared everywhere an order/bill/ticket needs a human label — covers all
+// three order types (dine-in table, takeaway, WhatsApp phone-in order).
+function orderTypeLabel(o) {
+  if (o.orderType === "takeaway") return `Takeaway #${o.label}`;
+  if (o.orderType === "whatsapp") return `WhatsApp #${o.label}`;
+  return `Table ${o.label}`;
+}
+
 const todayStr = () => {
   const d = new Date();
   const y = d.getFullYear();
@@ -167,6 +175,7 @@ export default function App({ restaurantId, cashierName: staffName, onLogout, on
   const [corkageFee, setCorkageFee] = useState(500);
   const [serviceChargePct, setServiceChargePct] = useState(10);
   const [takeawayCounter, setTakeawayCounter] = useState(1);
+  const [whatsappCounter, setWhatsappCounter] = useState(1);
   const [receipt, setReceipt] = useState(null);
   const [kitchenTicket, setKitchenTicket] = useState(null);
   const [cashierName, setCashierName] = useState(staffName || "");
@@ -228,6 +237,7 @@ export default function App({ restaurantId, cashierName: staffName, onLogout, on
     { id: "dashboard", label: "Dashboard", icon: LayoutGrid },
     { id: "reservations", label: "Tables & Bookings", icon: CalendarClock },
     { id: "pos", label: "Orders & Billing", icon: ClipboardList },
+    { id: "whatsapp", label: "WhatsApp Orders", icon: MessageCircle },
     { id: "kitchen", label: "Kitchen Display", icon: ChefHat },
     { id: "bills", label: "Bill History", icon: History },
     { id: "menu", label: "Menu", icon: UtensilsCrossed },
@@ -354,10 +364,21 @@ export default function App({ restaurantId, cashierName: staffName, onLogout, on
           <POSTab tables={tables} setTables={setTables} menu={menu} orders={orders} setOrders={setOrders}
             corkageFee={corkageFee} serviceChargePct={serviceChargePct}
             takeawayCounter={takeawayCounter} setTakeawayCounter={setTakeawayCounter}
+            whatsappCounter={whatsappCounter} setWhatsappCounter={setWhatsappCounter}
             billHistory={billHistory} setBillHistory={setBillHistory} setReceipt={setReceipt}
             cashierName={cashierName} reservations={reservations} setReservations={setReservations}
             markRoundServed={markRoundServed} poolTables={poolTables} setPoolTables={setPoolTables}
-            setKitchenTicket={setKitchenTicket} restaurantId={restaurantId} addons={addons} />
+            setKitchenTicket={setKitchenTicket} restaurantId={restaurantId} addons={addons} mode="all" />
+        )}
+        {tab === "whatsapp" && (
+          <POSTab tables={tables} setTables={setTables} menu={menu} orders={orders} setOrders={setOrders}
+            corkageFee={corkageFee} serviceChargePct={serviceChargePct}
+            takeawayCounter={takeawayCounter} setTakeawayCounter={setTakeawayCounter}
+            whatsappCounter={whatsappCounter} setWhatsappCounter={setWhatsappCounter}
+            billHistory={billHistory} setBillHistory={setBillHistory} setReceipt={setReceipt}
+            cashierName={cashierName} reservations={reservations} setReservations={setReservations}
+            markRoundServed={markRoundServed} poolTables={poolTables} setPoolTables={setPoolTables}
+            setKitchenTicket={setKitchenTicket} restaurantId={restaurantId} addons={addons} mode="whatsapp" />
         )}
         {tab === "kitchen" && (
           <KitchenTab orders={orders} markRoundServed={markRoundServed} undoRoundServed={undoRoundServed} setKitchenTicket={setKitchenTicket} />
@@ -431,7 +452,7 @@ function ReceiptModal({ bill, onClose }) {
           </div>
           <div style={{ borderTop: "1px dashed #999", margin: "8px 0" }} />
           <div>Date: {bill.date} {bill.time}</div>
-          <div>{bill.orderType === "takeaway" ? `Takeaway #${bill.label}` : `Table ${bill.label}`}</div>
+          <div>{orderTypeLabel(bill)}</div>
           {bill.customerName && <div>Customer: {bill.customerName}</div>}
           {bill.customerPhone && <div>Phone: {bill.customerPhone}</div>}
           {bill.cashier && <div>Billed by: {bill.cashier}</div>}
@@ -519,11 +540,11 @@ function KitchenTicketModal({ ticket, onClose }) {
         <div className="receipt-print" style={{ fontFamily: monoFont, fontSize: 12.5, color: "#111" }}>
           <div style={{ textAlign: "center", marginBottom: 10 }}>
             <div style={{ fontFamily: displayFont, fontSize: 18, fontWeight: 700 }}>KITCHEN TICKET</div>
-            <div style={{ fontSize: 10.5, color: "#555" }}>{ticket.orderType === "takeaway" ? "TAKEAWAY — for packing" : `Table ${ticket.label}`}</div>
+            <div style={{ fontSize: 10.5, color: "#555" }}>{ticket.orderType === "takeaway" ? "TAKEAWAY — for packing" : ticket.orderType === "whatsapp" ? "WHATSAPP ORDER — for packing" : `Table ${ticket.label}`}</div>
           </div>
           <div style={{ borderTop: "1px dashed #999", margin: "8px 0" }} />
           <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>
-            {ticket.orderType === "takeaway" ? `Takeaway #${ticket.label}` : `Table ${ticket.label}`} · Round {ticket.roundNumber}
+            {orderTypeLabel(ticket)} · Round {ticket.roundNumber}
           </div>
           {ticket.customerName && <div>Customer: {ticket.customerName}</div>}
           {ticket.customerPhone && <div>Phone: {ticket.customerPhone}</div>}
@@ -543,7 +564,7 @@ function KitchenTicketModal({ ticket, onClose }) {
           ))}
           <div style={{ borderTop: "1px dashed #999", margin: "10px 0" }} />
           <div style={{ textAlign: "center", fontSize: 10.5, color: "#555" }}>
-            {ticket.orderType === "takeaway" ? "Pack with the printed bill before handover." : "Kitchen prep copy — no prices."}
+            {(ticket.orderType === "takeaway" || ticket.orderType === "whatsapp") ? "Pack with the printed bill before handover." : "Kitchen prep copy — no prices."}
           </div>
         </div>
         <div className="no-print" style={{ fontSize: 11, color: "#7A756B", marginTop: 14, textAlign: "center" }}>
@@ -755,7 +776,7 @@ function ReservationsTab({ tables, setTables, reservations, setReservations, ord
                 <div style={{ width: 10, height: 10, borderRadius: "50%", background: C.wine }} />
                 <div>
                   <div style={{ fontSize: 13.5, fontWeight: 700, color: C.wine }}>
-                    In use — {poolOwnerOrder ? (poolOwnerOrder.orderType === "takeaway" ? `Takeaway #${poolOwnerOrder.label}` : `Table ${poolOwnerOrder.label}`) : "—"}
+                    In use — {poolOwnerOrder ? orderTypeLabel(poolOwnerOrder) : "—"}
                   </div>
                   <div style={{ fontSize: 11.5, color: C.slate }}>Running since {new Date(pool.startedAt).toTimeString().slice(0, 5)}</div>
                 </div>
@@ -832,7 +853,7 @@ function ReservationsTab({ tables, setTables, reservations, setReservations, ord
 }
 
 /* ---------------- POS / Orders ---------------- */
-function POSTab({ tables, setTables, menu, orders, setOrders, corkageFee, serviceChargePct, takeawayCounter, setTakeawayCounter, billHistory, setBillHistory, setReceipt, cashierName, reservations, setReservations, markRoundServed, poolTables, setPoolTables, setKitchenTicket, restaurantId, addons }) {
+function POSTab({ tables, setTables, menu, orders, setOrders, corkageFee, serviceChargePct, takeawayCounter, setTakeawayCounter, whatsappCounter, setWhatsappCounter, billHistory, setBillHistory, setReceipt, cashierName, reservations, setReservations, markRoundServed, poolTables, setPoolTables, setKitchenTicket, restaurantId, addons, mode = "all" }) {
   const [activeOrderId, setActiveOrderId] = useState(null);
   const activeOrder = orders.find(o => o.id === activeOrderId);
   const [menuFilter, setMenuFilter] = useState("All");
@@ -877,6 +898,21 @@ function POSTab({ tables, setTables, menu, orders, setOrders, corkageFee, servic
     };
     setOrders([...orders, ord]);
     setTakeawayCounter(takeawayCounter + 1);
+    setActiveOrderId(ord.id);
+    setConfirmVoid(false);
+  }
+
+  // WhatsApp orders — same flow as takeaway (kitchen ticket + bill), but
+  // numbered separately and defaults the customer to needing a phone number
+  // so the "Send via WhatsApp" button on the receipt works right away.
+  function newWhatsAppOrder() {
+    const ord = {
+      id: uid("o"), orderType: "whatsapp", tableId: null, label: whatsappCounter,
+      rounds: [{ id: uid("rd"), items: [], status: "open", firedAt: null }],
+      bottles: 0, poolHours: 0, poolCharge: 0, cashReceived: "", paymentMethod: "Cash", customerName: "", customerPhone: "", discountType: "none", discountValue: 0, applyService: false, createdAt: Date.now()
+    };
+    setOrders([...orders, ord]);
+    setWhatsappCounter(whatsappCounter + 1);
     setActiveOrderId(ord.id);
     setConfirmVoid(false);
   }
@@ -1069,47 +1105,76 @@ function POSTab({ tables, setTables, menu, orders, setOrders, corkageFee, servic
     menuByCategory[m.category].push(m);
   }
   const takeawayOrders = orders.filter(o => o.orderType === "takeaway");
+  const whatsappOrders = orders.filter(o => o.orderType === "whatsapp");
+  function orderLabel(o) {
+    if (o.orderType === "takeaway") return `Takeaway #${o.label}`;
+    if (o.orderType === "whatsapp") return `WhatsApp #${o.label}`;
+    return `Table ${o.label}`;
+  }
   const openRound = activeOrder?.rounds.find(r => r.status === "open");
   const firedRounds = activeOrder ? activeOrder.rounds.filter(r => r.status !== "open") : [];
 
   return (
     <div>
-      <SectionTitle eyebrow="Table-side & takeaway" title="Orders & Billing" right={
-        <Btn variant="gold" onClick={newTakeawayOrder} icon={ShoppingBag}>New takeaway order</Btn>
+      <SectionTitle eyebrow={mode === "whatsapp" ? "Phone-in orders" : "Table-side & takeaway"} title={mode === "whatsapp" ? "WhatsApp Orders" : "Orders & Billing"} right={
+        mode === "whatsapp"
+          ? <Btn variant="gold" onClick={newWhatsAppOrder} icon={MessageCircle}>New WhatsApp order</Btn>
+          : <Btn variant="gold" onClick={newTakeawayOrder} icon={ShoppingBag}>New takeaway order</Btn>
       } />
       <div style={{ display: "grid", gridTemplateColumns: "220px 1.3fr 1fr", gap: 16 }}>
-        {/* Table / takeaway picker */}
+        {/* Table / takeaway / whatsapp picker */}
         <Card style={{ padding: 14 }}>
-          <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 10 }}>Tables</div>
-          {tables.map(t => {
-            const hasOrder = orders.find(o => o.tableId === t.id);
-            return (
-              <button key={t.id} onClick={() => openTableOrder(t.id)} style={{
-                width: "100%", textAlign: "left", padding: "9px 10px", marginBottom: 6, borderRadius: 8,
-                border: `1px solid ${activeOrderId === hasOrder?.id ? C.wine : C.line}`,
-                background: activeOrderId === hasOrder?.id ? "#F0DEE1" : C.cream, cursor: "pointer",
-                display: "flex", alignItems: "center", gap: 8
-              }}>
-                <span style={{ fontFamily: monoFont, fontWeight: 700, fontSize: 13 }}>T{t.number}</span>
-                <span style={{ fontSize: 11.5, color: C.slate }}>{t.seats} seats</span>
-                {hasOrder && <span style={{ marginLeft: "auto", width: 7, height: 7, borderRadius: "50%", background: C.gold }} />}
-              </button>
-            );
-          })}
-          {takeawayOrders.length > 0 && (
+          {mode === "whatsapp" ? (
             <>
-              <div style={{ fontWeight: 700, fontSize: 13, margin: "14px 0 8px" }}>Takeaway</div>
-              {takeawayOrders.map(o => (
+              <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 10 }}>WhatsApp orders</div>
+              {whatsappOrders.length === 0 && <div style={{ fontSize: 12, color: C.slate }}>No open WhatsApp orders. Click "New WhatsApp order" when a message comes in.</div>}
+              {whatsappOrders.map(o => (
                 <button key={o.id} onClick={() => { setActiveOrderId(o.id); setConfirmVoid(false); }} style={{
                   width: "100%", textAlign: "left", padding: "9px 10px", marginBottom: 6, borderRadius: 8,
                   border: `1px solid ${activeOrderId === o.id ? C.wine : C.line}`,
                   background: activeOrderId === o.id ? "#F0DEE1" : C.cream, cursor: "pointer",
                   display: "flex", alignItems: "center", gap: 8
                 }}>
-                  <ShoppingBag size={13} />
+                  <MessageCircle size={13} color="#25D366" />
                   <span style={{ fontSize: 12.5 }}>#{o.label}{o.customerName ? ` · ${o.customerName}` : ""}</span>
+                  {!o.customerPhone && <AlertTriangle size={12} color={C.rust} title="No phone number yet" />}
                 </button>
               ))}
+            </>
+          ) : (
+            <>
+              <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 10 }}>Tables</div>
+              {tables.map(t => {
+                const hasOrder = orders.find(o => o.tableId === t.id);
+                return (
+                  <button key={t.id} onClick={() => openTableOrder(t.id)} style={{
+                    width: "100%", textAlign: "left", padding: "9px 10px", marginBottom: 6, borderRadius: 8,
+                    border: `1px solid ${activeOrderId === hasOrder?.id ? C.wine : C.line}`,
+                    background: activeOrderId === hasOrder?.id ? "#F0DEE1" : C.cream, cursor: "pointer",
+                    display: "flex", alignItems: "center", gap: 8
+                  }}>
+                    <span style={{ fontFamily: monoFont, fontWeight: 700, fontSize: 13 }}>T{t.number}</span>
+                    <span style={{ fontSize: 11.5, color: C.slate }}>{t.seats} seats</span>
+                    {hasOrder && <span style={{ marginLeft: "auto", width: 7, height: 7, borderRadius: "50%", background: C.gold }} />}
+                  </button>
+                );
+              })}
+              {takeawayOrders.length > 0 && (
+                <>
+                  <div style={{ fontWeight: 700, fontSize: 13, margin: "14px 0 8px" }}>Takeaway</div>
+                  {takeawayOrders.map(o => (
+                    <button key={o.id} onClick={() => { setActiveOrderId(o.id); setConfirmVoid(false); }} style={{
+                      width: "100%", textAlign: "left", padding: "9px 10px", marginBottom: 6, borderRadius: 8,
+                      border: `1px solid ${activeOrderId === o.id ? C.wine : C.line}`,
+                      background: activeOrderId === o.id ? "#F0DEE1" : C.cream, cursor: "pointer",
+                      display: "flex", alignItems: "center", gap: 8
+                    }}>
+                      <ShoppingBag size={13} />
+                      <span style={{ fontSize: 12.5 }}>#{o.label}{o.customerName ? ` · ${o.customerName}` : ""}</span>
+                    </button>
+                  ))}
+                </>
+              )}
             </>
           )}
         </Card>
@@ -1117,7 +1182,7 @@ function POSTab({ tables, setTables, menu, orders, setOrders, corkageFee, servic
         {/* Menu grid */}
         <Card>
           <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 10 }}>
-            {activeOrder ? `Menu — adding to ${activeOrder.orderType === "takeaway" ? `Takeaway #${activeOrder.label}` : `Table ${activeOrder.label}`}` : "Select a table or start a takeaway order"}
+            {activeOrder ? `Menu — adding to ${orderLabel(activeOrder)}` : mode === "whatsapp" ? "Start a new WhatsApp order to add items" : "Select a table or start a takeaway order"}
           </div>
           {activeOrder && (
             <>
@@ -1186,7 +1251,7 @@ function POSTab({ tables, setTables, menu, orders, setOrders, corkageFee, servic
                       <Btn small variant="gold" onClick={finishPool}>Finish pool</Btn>
                     )}
                     {pool.status === "in-use" && pool.activeOrderId !== activeOrder.id && (
-                      <Pill tone="rust">In use — {(() => { const o = orders.find(x => x.id === pool.activeOrderId); return o ? (o.orderType === "takeaway" ? `Takeaway #${o.label}` : `Table ${o.label}`) : "another table"; })()}</Pill>
+                      <Pill tone="rust">In use — {(() => { const o = orders.find(x => x.id === pool.activeOrderId); return o ? orderTypeLabel(o) : "another table"; })()}</Pill>
                     )}
                   </div>
                 </div>
@@ -1234,7 +1299,7 @@ function POSTab({ tables, setTables, menu, orders, setOrders, corkageFee, servic
           ) : (
             <>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                <div style={{ fontFamily: displayFont, fontSize: 17 }}>{activeOrder.orderType === "takeaway" ? `Takeaway #${activeOrder.label}` : `Table ${activeOrder.label}`}</div>
+                <div style={{ fontFamily: displayFont, fontSize: 17 }}>{orderTypeLabel(activeOrder)}</div>
                 <Receipt size={16} color={C.gold} />
               </div>
 
@@ -1397,8 +1462,8 @@ function KitchenTab({ orders, markRoundServed, undoRoundServed, setKitchenTicket
   const allFiring = orders.flatMap(o => o.rounds.map((r, idx) => ({ o, r, idx })))
     .filter(x => x.r.status === "kitchen")
     .sort((a, b) => (a.r.firedAt || 0) - (b.r.firedAt || 0));
-  const firingTakeaway = allFiring.filter(x => x.o.orderType === "takeaway");
-  const firingDineIn = allFiring.filter(x => x.o.orderType !== "takeaway");
+  const firingTakeaway = allFiring.filter(x => x.o.orderType === "takeaway" || x.o.orderType === "whatsapp");
+  const firingDineIn = allFiring.filter(x => x.o.orderType !== "takeaway" && x.o.orderType !== "whatsapp");
   const served = orders.flatMap(o => o.rounds.map((r, idx) => ({ o, r, idx })))
     .filter(x => x.r.status === "served")
     .sort((a, b) => (b.r.firedAt || 0) - (a.r.firedAt || 0));
@@ -1424,7 +1489,8 @@ function KitchenTab({ orders, markRoundServed, undoRoundServed, setKitchenTicket
           <div>
             <div style={{ fontFamily: displayFont, fontSize: 19, fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>
               {o.orderType === "takeaway" && <ShoppingBag size={16} color={C.gold} />}
-              {o.orderType === "takeaway" ? `Takeaway #${o.label}` : `Table ${o.label}`}
+              {o.orderType === "whatsapp" && <MessageCircle size={16} color="#25D366" />}
+              {orderTypeLabel(o)}
             </div>
             <div style={{ fontSize: 11.5, color: C.slate, marginTop: 2 }}>Round {idx + 1} · {elapsed(r.firedAt)}</div>
           </div>
@@ -1487,7 +1553,7 @@ function KitchenTab({ orders, markRoundServed, undoRoundServed, setKitchenTicket
             {served.slice(0, 8).map(({ o, r, idx }) => (
               <Card key={r.id} style={{ padding: 12, opacity: 0.65 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                  <div style={{ fontSize: 12.5, fontWeight: 700 }}>{o.orderType === "takeaway" ? `Takeaway #${o.label}` : `Table ${o.label}`} · R{idx + 1}</div>
+                  <div style={{ fontSize: 12.5, fontWeight: 700 }}>{orderTypeLabel(o)} · R{idx + 1}</div>
                   <Check size={13} color={C.sage} />
                 </div>
                 {r.items.map(i => <div key={i.menuItemId} style={{ fontSize: 11.5, color: C.slate }}>{i.qty}× {i.name}</div>)}
@@ -1627,7 +1693,7 @@ function BillHistoryTab({ billHistory, setBillHistory, setReceipt }) {
                 <Receipt size={15} color={C.slate} />
                 <div>
                   <div style={{ fontSize: 13.5, fontWeight: 600 }}>
-                    #{b.receiptNo} · {b.orderType === "takeaway" ? `Takeaway #${b.label}` : `Table ${b.label}`}
+                    #{b.receiptNo} · {orderTypeLabel(b)}
                     {b.customerName && ` · ${b.customerName}`}
                   </div>
                   <div style={{ fontSize: 11.5, color: C.slate }}>
