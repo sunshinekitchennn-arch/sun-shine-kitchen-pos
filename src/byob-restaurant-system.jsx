@@ -383,7 +383,38 @@ export default function App({ restaurantId, cashierName: staffName, onLogout, on
 }
 
 /* ---------------- Receipt modal (printable) ---------------- */
+// Turns a Sri Lankan number typed as "0771234567" or "+94771234567" into the
+// "94771234567" format WhatsApp's wa.me links require (country code, no
+// leading zero, no + or spaces).
+function normalizeLkPhone(phone) {
+  const digits = (phone || "").replace(/\D/g, "");
+  if (digits.startsWith("94")) return digits;
+  if (digits.startsWith("0")) return "94" + digits.slice(1);
+  return digits;
+}
+
+function buildWhatsAppReceiptText(bill) {
+  const lines = [
+    `*Sun Shine Kitchen* — Receipt #${bill.receiptNo}`,
+    `${bill.date} ${bill.time}`,
+    "",
+    ...bill.items.map(i => `${i.qty}x ${i.name} — ${rs(i.price * i.qty)}`),
+    "",
+    `*Total: ${rs(bill.grandTotal)}*`,
+    `Paid via: ${bill.paymentMethod || "Cash"}`,
+    "",
+    "Thank you for dining with us! We hope to see you again soon. 🙏",
+  ];
+  return lines.join("\n");
+}
+
 function ReceiptModal({ bill, onClose }) {
+  const canWhatsApp = !!bill.customerPhone;
+  function sendViaWhatsApp() {
+    const phone = normalizeLkPhone(bill.customerPhone);
+    const text = encodeURIComponent(buildWhatsAppReceiptText(bill));
+    window.open(`https://wa.me/${phone}?text=${text}`, "_blank");
+  }
   return (
     <div className="no-print" style={{
       position: "fixed", inset: 0, background: "#00000066", display: "flex",
@@ -445,10 +476,24 @@ function ReceiptModal({ bill, onClose }) {
           <div style={{ borderTop: "1px dashed #999", margin: "10px 0" }} />
           <div style={{ textAlign: "center", fontSize: 10.5, color: "#555" }}>Thank you, come again!</div>
         </div>
-        <div className="no-print" style={{ display: "flex", gap: 8, marginTop: 16 }}>
+        <div className="no-print" style={{ display: "flex", gap: 8, marginTop: 16, flexWrap: "wrap" }}>
           <Btn onClick={() => window.print()} icon={Printer}>Print</Btn>
+          {canWhatsApp && (
+            <button onClick={sendViaWhatsApp} style={{
+              background: "#25D366", color: "#fff", border: "1px solid #25D366", borderRadius: 9,
+              padding: "9px 16px", fontFamily: bodyFont, fontWeight: 600, fontSize: 14, cursor: "pointer",
+              display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap",
+            }}>
+              📱 Send via WhatsApp
+            </button>
+          )}
           <Btn variant="ghost" onClick={onClose} icon={X}>Close</Btn>
         </div>
+        {!canWhatsApp && (
+          <div className="no-print" style={{ fontSize: 11.5, color: C.slate, marginTop: 8, textAlign: "center" }}>
+            No phone number on this order — add one to enable WhatsApp sending.
+          </div>
+        )}
       </div>
     </div>
   );
@@ -519,6 +564,7 @@ function Dashboard({ tables, reservations, orders, lowStock, todaysCorkage, toda
   const stats = [
     { label: "Tables occupied", value: `${occupied}/${tables.length}` },
     { label: "Reservations today", value: reservations.filter(r => r.date === todayStr() && r.status !== "cancelled").length },
+    { label: "WhatsApp orders", value: externalOrders.filter(o => o.platform === "WhatsApp").length },
     { label: "Open tickets", value: orders.length },
     { label: "Low stock items", value: lowStock.length, warn: true },
   ];
@@ -544,7 +590,8 @@ function Dashboard({ tables, reservations, orders, lowStock, todaysCorkage, toda
           </div>
           <Row label="Food & beverage sales" value={rs(todaysFood)} />
           <Row label="Corkage fees collected" value={rs(todaysCorkage)} highlight />
-          <Row label="Delivery orders (Uber etc.)" value={rs(externalOrders.reduce((s, o) => s + o.total, 0))} />
+          <Row label="Delivery orders (Uber etc.)" value={rs(externalOrders.filter(o => o.platform !== "WhatsApp").reduce((s, o) => s + o.total, 0))} />
+          <Row label="WhatsApp orders" value={rs(externalOrders.filter(o => o.platform === "WhatsApp").reduce((s, o) => s + o.total, 0))} />
           {refundedToday > 0 && <Row label="Refunded bills today" value={refundedToday} />}
           <div style={{ borderTop: `1px dashed ${C.line}`, marginTop: 10, paddingTop: 10, display: "flex", justifyContent: "space-between" }}>
             <span style={{ fontWeight: 700, fontFamily: bodyFont }}>Total (dine-in/takeaway)</span>
@@ -1838,7 +1885,7 @@ function DeliveryTab({ externalOrders, setExternalOrders, menu }) {
   function remove(id) { setExternalOrders(externalOrders.filter(o => o.id !== id)); }
 
   const statusTone = { received: "gold", preparing: "wine", "ready for pickup": "sage", completed: "slate" };
-  const platforms = ["Uber Eats", "PickMe Food", "Yamu"];
+  const platforms = ["Uber Eats", "PickMe Food", "Yamu", "WhatsApp"];
 
   const netTotal = externalOrders.reduce((s, o) => s + o.total * (1 - o.commission / 100), 0);
 
@@ -1874,7 +1921,7 @@ function DeliveryTab({ externalOrders, setExternalOrders, menu }) {
         <Card style={{ alignSelf: "start" }}>
           <div style={{ fontFamily: displayFont, fontSize: 17, marginBottom: 12 }}>Log delivery order</div>
           <Field label="Platform">
-            <select style={inp} value={form.platform} onChange={e => setForm({ ...form, platform: e.target.value })}>
+            <select style={inp} value={form.platform} onChange={e => setForm({ ...form, platform: e.target.value, commission: e.target.value === "WhatsApp" ? 0 : form.commission })}>
               {platforms.map(p => <option key={p}>{p}</option>)}
             </select>
           </Field>
