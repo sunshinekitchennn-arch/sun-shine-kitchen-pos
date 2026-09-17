@@ -175,7 +175,23 @@ export default function App({ restaurantId, cashierName: staffName, onLogout, on
   const [corkageFee, setCorkageFee] = useState(500);
   const [serviceChargePct, setServiceChargePct] = useState(10);
   const [takeawayCounter, setTakeawayCounter] = useState(1);
-  const [whatsappCounter, setWhatsappCounter] = useState(1);
+  // Persisted per-day so a page refresh mid-shift doesn't restart numbering
+  // from #1 (which was causing duplicate WhatsApp order numbers) — but it
+  // does reset to #1 automatically once the date rolls over.
+  const [whatsappCounter, setWhatsappCounterState] = useState(() => {
+    try {
+      const raw = localStorage.getItem("ssk_whatsapp_counter");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed.date === todayStr()) return parsed.value;
+      }
+    } catch { /* ignore, fall through to default */ }
+    return 1;
+  });
+  function setWhatsappCounter(value) {
+    setWhatsappCounterState(value);
+    try { localStorage.setItem("ssk_whatsapp_counter", JSON.stringify({ date: todayStr(), value })); } catch { /* storage unavailable, counter still works for this session */ }
+  }
   const [receipt, setReceipt] = useState(null);
   const [kitchenTicket, setKitchenTicket] = useState(null);
   const [cashierName, setCashierName] = useState(staffName || "");
@@ -211,7 +227,7 @@ export default function App({ restaurantId, cashierName: staffName, onLogout, on
           orderType: b.order_type,
           label: b.label,
           customerName: b.customer_name,
-          customerPhone: null,
+          customerPhone: b.customer_phone || null,
           bottles: b.bottles,
           corkageTotal: Number(b.corkage_total),
           foodTotal: Number(b.food_total),
@@ -1609,6 +1625,14 @@ function BillHistoryTab({ billHistory, setBillHistory, setReceipt }) {
     const pm = b.paymentMethod || "Cash";
     byPaymentMethod[pm] = (byPaymentMethod[pm] || 0) + b.grandTotal;
   }
+  const channelLabel = t => t === "whatsapp" ? "WhatsApp" : t === "takeaway" ? "Takeaway" : "Dine-in";
+  const byChannel = {};
+  for (const b of paidFiltered) {
+    const ch = channelLabel(b.orderType);
+    if (!byChannel[ch]) byChannel[ch] = { count: 0, total: 0 };
+    byChannel[ch].count += 1;
+    byChannel[ch].total += b.grandTotal;
+  }
 
   const byDay = dates.map(d => {
     const dayBills = billHistory.filter(b => b.date === d && b.status === "paid");
@@ -1653,6 +1677,14 @@ function BillHistoryTab({ billHistory, setBillHistory, setReceipt }) {
               <div style={{ fontSize: 11, color: C.slate, textTransform: "uppercase", letterSpacing: 0.4, fontWeight: 700, marginBottom: 6 }}>By payment method</div>
               {Object.entries(byPaymentMethod).map(([pm, amt]) => (
                 <Row key={pm} label={pm} value={rs(amt)} />
+              ))}
+            </div>
+          )}
+          {Object.keys(byChannel).length > 0 && (
+            <div style={{ borderTop: `1px dashed ${C.line}`, marginTop: 10, paddingTop: 10 }}>
+              <div style={{ fontSize: 11, color: C.slate, textTransform: "uppercase", letterSpacing: 0.4, fontWeight: 700, marginBottom: 6 }}>By order source</div>
+              {Object.entries(byChannel).map(([ch, d]) => (
+                <Row key={ch} label={`${ch} (${d.count})`} value={rs(d.total)} />
               ))}
             </div>
           )}

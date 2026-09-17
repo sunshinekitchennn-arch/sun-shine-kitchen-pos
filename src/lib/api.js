@@ -179,6 +179,7 @@ export async function saveBill(restaurantId, bill) {
     order_type: bill.orderType,
     label: String(bill.label),
     customer_name: bill.customerName || null,
+    customer_phone: bill.customerPhone || null,
     date: bill.date,
     food_total: bill.foodTotal,
     corkage_total: bill.corkageTotal,
