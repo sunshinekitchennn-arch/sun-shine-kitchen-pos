@@ -60,6 +60,35 @@ const rs = (n) => `Rs. ${Number(n || 0).toLocaleString("en-LK", { minimumFractio
 // Uses the browser's LOCAL date (Sri Lanka time on staff devices), not UTC —
 // toISOString() would give the wrong date between 12am-5:30am local time
 // since Sri Lanka is UTC+5:30.
+// Injects the media-query overrides needed to make the app usable on
+// tablets/phones. Uses !important because the rest of the app is styled
+// with inline styles, which normally win over external CSS.
+function ResponsiveStyles() {
+  return (
+    <style>{`
+      @media (max-width: 860px) {
+        .app-shell { flex-direction: column !important; min-height: 100vh !important; }
+        .app-sidebar {
+          width: 100% !important; flex-direction: row !important; flex-wrap: nowrap !important;
+          overflow-x: auto !important; padding: 8px !important; gap: 6px !important;
+          align-items: center !important;
+        }
+        .app-sidebar > div:first-child { display: none !important; }
+        .app-nav-btn { flex-shrink: 0 !important; padding: 8px 10px !important; font-size: 12px !important; }
+        .app-nav-label { display: none !important; }
+        .app-sidebar-settings { display: none !important; }
+        .app-main { padding: 12px !important; max-height: none !important; }
+        .pos-grid { grid-template-columns: 1fr !important; }
+        .stats-grid { grid-template-columns: repeat(2, 1fr) !important; }
+        .two-col-grid { grid-template-columns: 1fr !important; }
+      }
+      @media (max-width: 480px) {
+        .stats-grid { grid-template-columns: 1fr !important; }
+      }
+    `}</style>
+  );
+}
+
 // Shared everywhere an order/bill/ticket needs a human label — covers all
 // three order types (dine-in table, takeaway, WhatsApp phone-in order).
 function orderTypeLabel(o) {
@@ -278,11 +307,12 @@ export default function App({ restaurantId, cashierName: staffName, onLogout, on
   const todaysNet = todayBills.reduce((s, b) => s + b.grandTotal, 0);
 
   return (
-    <div style={{ display: "flex", minHeight: 640, background: C.paper, fontFamily: bodyFont, borderRadius: 16, overflow: "hidden", border: `1px solid ${C.line}` }}>
+    <div className="app-shell" style={{ display: "flex", minHeight: "100vh", background: C.paper, fontFamily: bodyFont, overflow: "hidden" }}>
       {fontLinks}
+      <ResponsiveStyles />
 
       {/* Sidebar */}
-      <div className="no-print" style={{ width: 236, background: C.ink, padding: "22px 14px", display: "flex", flexDirection: "column", gap: 4, flexShrink: 0 }}>
+      <div className="no-print app-sidebar" style={{ width: 236, background: C.ink, padding: "22px 14px", display: "flex", flexDirection: "column", gap: 4, flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "0 8px 20px 8px" }}>
           <img src="/logo.jpeg" alt="Logo" style={{ width: 34, height: 34, borderRadius: 9, objectFit: "cover" }} />
           <div>
@@ -302,7 +332,7 @@ export default function App({ restaurantId, cashierName: staffName, onLogout, on
           const Icon = n.icon;
           const active = tab === n.id;
           return (
-            <button key={n.id} onClick={() => setTab(n.id)} style={{
+            <button key={n.id} onClick={() => setTab(n.id)} className="app-nav-btn" style={{
               display: "flex", alignItems: "center", gap: 10, padding: "10px 12px",
               borderRadius: 9, border: "none", cursor: "pointer", textAlign: "left",
               background: active ? C.wine : "transparent",
@@ -310,7 +340,7 @@ export default function App({ restaurantId, cashierName: staffName, onLogout, on
               fontFamily: bodyFont, fontWeight: 600, fontSize: 13.5
             }}>
               <Icon size={16} />
-              {n.label}
+              <span className="app-nav-label">{n.label}</span>
               {n.id === "inventory" && lowStock.length > 0 && (
                 <span style={{ marginLeft: "auto", background: C.rust, color: "#fff", fontSize: 10.5, fontWeight: 700, borderRadius: 20, padding: "1px 7px" }}>{lowStock.length}</span>
               )}
@@ -323,7 +353,7 @@ export default function App({ restaurantId, cashierName: staffName, onLogout, on
             </button>
           );
         })}
-        <div style={{ marginTop: "auto", padding: "12px 12px 4px", borderTop: "1px solid #ffffff1a", display: "flex", flexDirection: "column", gap: 10 }}>
+        <div className="app-sidebar-settings" style={{ marginTop: "auto", padding: "12px 12px 4px", borderTop: "1px solid #ffffff1a", display: "flex", flexDirection: "column", gap: 10 }}>
           <div>
             <div style={{ color: "#ffffff70", fontSize: 11 }}>Counter / cashier on duty</div>
             <input value={cashierName} onChange={e => setCashierName(e.target.value)} placeholder="e.g. Sanduni"
@@ -367,7 +397,7 @@ export default function App({ restaurantId, cashierName: staffName, onLogout, on
       </div>
 
       {/* Main */}
-      <div style={{ flex: 1, padding: 28, overflowY: "auto", maxHeight: 900 }}>
+      <div className="app-main" style={{ flex: 1, padding: 28, overflowY: "auto" }}>
         {tab === "dashboard" && (
           <Dashboard tables={tables} reservations={reservations} orders={orders} lowStock={lowStock}
             todaysCorkage={todaysCorkage} todaysFood={todaysFood} todaysNet={todaysNet}
@@ -610,7 +640,7 @@ function Dashboard({ tables, reservations, orders, lowStock, todaysCorkage, toda
   return (
     <div>
       <SectionTitle eyebrow="Tonight's service" title="Dashboard" />
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 22 }}>
+      <div className="stats-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 22 }}>
         {stats.map(s => (
           <Card key={s.label} style={{ padding: 18 }}>
             <div style={{ fontSize: 12, color: C.slate, fontWeight: 600, marginBottom: 8 }}>{s.label}</div>
@@ -743,7 +773,7 @@ function ReservationsTab({ tables, setTables, reservations, setReservations, ord
           <Lock size={14} /> {lockMsg}
         </div>
       )}
-      <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 18 }}>
+      <div className="two-col-grid" style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 18 }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
         <Card>
           <div style={{ fontFamily: displayFont, fontSize: 17, fontWeight: 600, marginBottom: 4 }}>Dining room</div>
@@ -875,6 +905,7 @@ function POSTab({ tables, setTables, menu, orders, setOrders, corkageFee, servic
   const [menuFilter, setMenuFilter] = useState("All");
   const [menuSearch, setMenuSearch] = useState("");
   const [confirmVoid, setConfirmVoid] = useState(false);
+  const [dbError, setDbError] = useState(null);
   const [, setTick] = useState(0);
   useEffect(() => {
     const t = setInterval(() => setTick(x => x + 1), 30000);
@@ -1103,7 +1134,10 @@ function POSTab({ tables, setTables, menu, orders, setOrders, corkageFee, servic
       updateTableStatus(activeOrder.tableId, "available").catch(err => console.error("Table status sync failed:", err));
     }
     if (restaurantId) {
-      saveBill(restaurantId, bill).catch(err => console.error("Bill save to database failed:", err));
+      saveBill(restaurantId, bill).then(() => setDbError(null)).catch(err => {
+        console.error("Bill save to database failed:", err);
+        setDbError(`⚠️ Bill #${bill.receiptNo} was NOT saved to the cloud — it will disappear if the page refreshes. Error: ${err.message || err}`);
+      });
     }
     setActiveOrderId(null);
     setReceipt(bill);
@@ -1132,12 +1166,18 @@ function POSTab({ tables, setTables, menu, orders, setOrders, corkageFee, servic
 
   return (
     <div>
+      {dbError && (
+        <div style={{ background: "#FBEAE7", border: `1px solid ${C.rust}`, color: C.rust, borderRadius: 8, padding: "10px 14px", marginBottom: 12, fontSize: 12.5, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+          <span>{dbError}</span>
+          <button onClick={() => setDbError(null)} style={{ background: "none", border: "none", cursor: "pointer", flexShrink: 0 }}><X size={14} color={C.rust} /></button>
+        </div>
+      )}
       <SectionTitle eyebrow={mode === "whatsapp" ? "Phone-in orders" : "Table-side & takeaway"} title={mode === "whatsapp" ? "WhatsApp Orders" : "Orders & Billing"} right={
         mode === "whatsapp"
           ? <Btn variant="gold" onClick={newWhatsAppOrder} icon={MessageCircle}>New WhatsApp order</Btn>
           : <Btn variant="gold" onClick={newTakeawayOrder} icon={ShoppingBag}>New takeaway order</Btn>
       } />
-      <div style={{ display: "grid", gridTemplateColumns: "220px 1.3fr 1fr", gap: 16 }}>
+      <div className="pos-grid" style={{ display: "grid", gridTemplateColumns: "220px 1.3fr 1fr", gap: 16 }}>
         {/* Table / takeaway / whatsapp picker */}
         <Card style={{ padding: 14 }}>
           {mode === "whatsapp" ? (
