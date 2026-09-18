@@ -100,6 +100,30 @@ export async function deleteAddon(id) {
   if (error) throw error;
 }
 
+// ---------- ORDER DRAFTS (keeps an in-progress order safe across a refresh) ----------
+// Saves/updates a snapshot of an order that's still being built (before it's
+// settled). Called automatically a moment after every change — the person
+// doesn't do anything differently, this just runs quietly in the background.
+export async function upsertOrderDraft(restaurantId, orderId, orderData) {
+  const { error } = await supabase.from("order_drafts").upsert({
+    id: orderId, restaurant_id: restaurantId, data: orderData, updated_at: new Date().toISOString(),
+  });
+  if (error) throw error;
+}
+
+export async function deleteOrderDraft(orderId) {
+  const { error } = await supabase.from("order_drafts").delete().eq("id", orderId);
+  if (error) throw error;
+}
+
+// Called once when the app loads, to bring back any orders that were still
+// in progress when the page was last closed/refreshed.
+export async function fetchOrderDrafts(restaurantId) {
+  const { data, error } = await supabase.from("order_drafts").select("*").eq("restaurant_id", restaurantId);
+  if (error) throw error;
+  return data.map(d => d.data);
+}
+
 // Public, no-login menu fetch for the customer-facing menu page.
 // Only returns available items, ordered so specials show first.
 export async function fetchPublicMenu(restaurantId) {

@@ -1,11 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Wine, UtensilsCrossed, CalendarClock, Package, ClipboardList, Truck,
   Plus, Minus, Trash2, Check, X, AlertTriangle, Search, ChevronRight,
   Users, Clock, Receipt, Pencil, LayoutGrid, ShoppingBag, Printer,
   RotateCcw, History, Coffee, Lock, ChefHat, Flame, Undo2, LogOut, MessageCircle
 } from "lucide-react";
-import { fetchTables, fetchMenu, saveBill, updateTableStatus, fetchBillsForDate, createMenuItem, updateMenuItem, deleteMenuItem, fetchReservations, createReservation, updateReservationStatus, deleteReservation, uploadMenuImage, fetchAddons } from "./lib/api";
+import { fetchTables, fetchMenu, saveBill, updateTableStatus, fetchBillsForDate, createMenuItem, updateMenuItem, deleteMenuItem, fetchReservations, createReservation, updateReservationStatus, deleteReservation, uploadMenuImage, fetchAddons, upsertOrderDraft, deleteOrderDraft, fetchOrderDrafts } from "./lib/api";
 
 /* ---------------- Design tokens ---------------- */
 const C = {
@@ -234,11 +234,12 @@ export default function App({ restaurantId, cashierName: staffName, onLogout, on
     if (!restaurantId) return;
     let cancelled = false;
     setDataLoading(true);
-    Promise.all([fetchTables(restaurantId), fetchMenu(restaurantId), fetchBillsForDate(restaurantId, null), fetchReservations(restaurantId), fetchAddons(restaurantId).catch(() => [])])
-      .then(([tableRows, menuRows, billRows, reservationRows, addonRows]) => {
+    Promise.all([fetchTables(restaurantId), fetchMenu(restaurantId), fetchBillsForDate(restaurantId, null), fetchReservations(restaurantId), fetchAddons(restaurantId).catch(() => []), fetchOrderDrafts(restaurantId).catch(() => [])])
+      .then(([tableRows, menuRows, billRows, reservationRows, addonRows, draftOrders]) => {
         if (cancelled) return;
         setAddons(addonRows.map(a => ({ id: a.id, name: a.name, price: Number(a.price) })));
         setTables(tableRows.map(t => ({ id: t.id, number: t.number, seats: t.seats, status: t.status })));
+        setOrders(draftOrders);
         setMenu(menuRows.map(m => ({
           id: m.id, name: m.name, type: m.type || "Food", category: m.category,
           price: Number(m.price), available: m.is_available, isSpecial: m.is_special || false,
@@ -906,6 +907,18 @@ function POSTab({ tables, setTables, menu, orders, setOrders, corkageFee, servic
   const [menuSearch, setMenuSearch] = useState("");
   const [confirmVoid, setConfirmVoid] = useState(false);
   const [dbError, setDbError] = useState(null);
+  const draftTimers = useRef({});
+
+  // Saves a snapshot of the order to the database a moment after each
+  // change, so it survives a refresh. Debounced so typing a name/note
+  // doesn't fire a network request on every keystroke.
+  function scheduleDraftSave(order) {
+    if (!restaurantId) return;
+    clearTimeout(draftTimers.current[order.id]);
+    draftTimers.current[order.id] = setTimeout(() => {
+      upsertOrderDraft(restaurantId, order.id, order).catch(err => console.error("Draft save failed:", err));
+    }, 700);
+  }
   const [, setTick] = useState(0);
   useEffect(() => {
     const t = setInterval(() => setTick(x => x + 1), 30000);
@@ -928,6 +941,7 @@ function POSTab({ tables, setTables, menu, orders, setOrders, corkageFee, servic
       setOrders([...orders, ord]);
       setTables(tables.map(t => t.id === tableId ? { ...t, status: "occupied" } : t));
       updateTableStatus(tableId, "occupied").catch(err => console.error("Table status sync failed:", err));
+      scheduleDraftSave(ord);
       if (linkedReservation) {
         setReservations(reservations.map(r => r.id === linkedReservation.id ? { ...r, status: "seated" } : r));
         updateReservationStatus(linkedReservation.id, "seated").catch(err => console.error("Reservation status sync failed:", err));
@@ -947,6 +961,7 @@ function POSTab({ tables, setTables, menu, orders, setOrders, corkageFee, servic
     setTakeawayCounter(takeawayCounter + 1);
     setActiveOrderId(ord.id);
     setConfirmVoid(false);
+    scheduleDraftSave(ord);
   }
 
   // WhatsApp orders — same flow as takeaway (kitchen ticket + bill), but
@@ -962,10 +977,13 @@ function POSTab({ tables, setTables, menu, orders, setOrders, corkageFee, servic
     setWhatsappCounter(whatsappCounter + 1);
     setActiveOrderId(ord.id);
     setConfirmVoid(false);
+    scheduleDraftSave(ord);
   }
 
   function updateOrder(patch) {
-    setOrders(orders.map(o => o.id === activeOrder.id ? { ...o, ...patch } : o));
+    const updated = { ...activeOrder, ...patch };
+    setOrders(orders.map(o => o.id === activeOrder.id ? updated : o));
+    scheduleDraftSave(updated);
   }
 
   // The round new items get added to. If the last round has already been fired/served, start a fresh round.
@@ -1069,6 +1087,8 @@ function POSTab({ tables, setTables, menu, orders, setOrders, corkageFee, servic
     setOrders(orders.filter(o => o.id !== activeOrder.id));
     setActiveOrderId(null);
     setConfirmVoid(false);
+    clearTimeout(draftTimers.current[activeOrder.id]);
+    deleteOrderDraft(activeOrder.id).catch(err => console.error("Draft delete failed:", err));
   }
 
   // Combined items across every round of the active order — this is what gets billed, no matter how many separate rounds were fired to the kitchen.
@@ -1141,6 +1161,8 @@ function POSTab({ tables, setTables, menu, orders, setOrders, corkageFee, servic
     }
     setActiveOrderId(null);
     setReceipt(bill);
+    clearTimeout(draftTimers.current[activeOrder.id]);
+    deleteOrderDraft(activeOrder.id).catch(err => console.error("Draft delete failed:", err));
   }
 
   const roundStatusLabel = { open: ["Not sent yet", "slate"], kitchen: ["In kitchen", "gold"], served: ["Served", "sage"] };
