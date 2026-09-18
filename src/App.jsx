@@ -123,12 +123,14 @@ function StaffApp() {
     if (showSecurityScreen) {
       return <SecurityScreen onClose={() => setShowSecurityScreen(false)} />;
     }
+    const isKitchenKiosk = window.location.pathname === "/kitchen";
     return (
       <BYOBRestaurantSystem
         restaurantId={profile.restaurant_id}
         cashierName={profile.full_name}
         onLogout={signOut}
         onOpenSecurity={() => setShowSecurityScreen(true)}
+        kioskMode={isKitchenKiosk ? "kitchen" : undefined}
       />
     );
   }

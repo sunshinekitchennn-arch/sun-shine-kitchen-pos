@@ -190,8 +190,8 @@ const iconBtn = { width: 22, height: 22, borderRadius: 6, border: `1px solid ${C
 const iconBtnDark = { width: 18, height: 18, borderRadius: 5, border: "1px solid #ffffff33", background: "transparent", color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" };
 
 /* ---------------- App ---------------- */
-export default function App({ restaurantId, cashierName: staffName, onLogout, onOpenSecurity }) {
-  const [tab, setTab] = useState("dashboard");
+export default function App({ restaurantId, cashierName: staffName, onLogout, onOpenSecurity, kioskMode }) {
+  const [tab, setTab] = useState(kioskMode === "kitchen" ? "kitchen" : "dashboard");
   const [tables, setTables] = useState([]);
   const [reservations, setReservations] = useState(seedReservations);
   const [menu, setMenu] = useState([]);
@@ -258,6 +258,7 @@ export default function App({ restaurantId, cashierName: staffName, onLogout, on
           label: b.label,
           customerName: b.customer_name,
           customerPhone: b.customer_phone || null,
+          items: b.items || [],
           bottles: b.bottles,
           corkageTotal: Number(b.corkage_total),
           foodTotal: Number(b.food_total),
@@ -270,6 +271,7 @@ export default function App({ restaurantId, cashierName: staffName, onLogout, on
           changeDue: b.change_due != null ? Number(b.change_due) : null,
           cashier: b.cashier_name,
           paymentMethod: b.payment_method || "Cash",
+          items: b.items || [],
           status: b.status,
         })));
         setDataError(null);
@@ -313,6 +315,7 @@ export default function App({ restaurantId, cashierName: staffName, onLogout, on
       <ResponsiveStyles />
 
       {/* Sidebar */}
+      {!kioskMode && (
       <div className="no-print app-sidebar" style={{ width: 236, background: C.ink, padding: "22px 14px", display: "flex", flexDirection: "column", gap: 4, flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "0 8px 20px 8px" }}>
           <img src="/logo.jpeg" alt="Logo" style={{ width: 34, height: 34, borderRadius: 9, objectFit: "cover" }} />
@@ -396,6 +399,7 @@ export default function App({ restaurantId, cashierName: staffName, onLogout, on
           </div>
         </div>
       </div>
+      )}
 
       {/* Main */}
       <div className="app-main" style={{ flex: 1, padding: 28, overflowY: "auto" }}>
@@ -466,7 +470,7 @@ function buildWhatsAppReceiptText(bill) {
     `*Sun Shine Kitchen* — Receipt #${bill.receiptNo}`,
     `${bill.date} ${bill.time}`,
     "",
-    ...bill.items.map(i => `${i.qty}x ${i.name} — ${rs(i.price * i.qty)}`),
+    ...(bill.items && bill.items.length > 0 ? bill.items.map(i => `${i.qty}x ${i.name} — ${rs(i.price * i.qty)}`) : ["(itemized list not available for this older bill)"]),
     "",
     `*Total: ${rs(bill.grandTotal)}*`,
     `Paid via: ${bill.paymentMethod || "Cash"}`,
@@ -505,7 +509,7 @@ function ReceiptModal({ bill, onClose }) {
           {bill.cashier && <div>Billed by: {bill.cashier}</div>}
           {bill.status === "refunded" && <div style={{ color: "#B5502F", fontWeight: 700, marginTop: 4 }}>*** REFUNDED ***</div>}
           <div style={{ borderTop: "1px dashed #999", margin: "8px 0" }} />
-          {bill.items.map((i, idx) => (
+          {(bill.items || []).map((i, idx) => (
             <div key={idx} style={{ display: "flex", justifyContent: "space-between" }}>
               <span>{i.qty}x {i.name}</span>
               <span>{rs(i.price * i.qty)}</span>
@@ -872,9 +876,14 @@ function ReservationsTab({ tables, setTables, reservations, setReservations, ord
               const now = new Date();
               const nowTime = String(now.getHours()).padStart(2, "0") + ":" + String(now.getMinutes()).padStart(2, "0");
               const today = todayStr();
+              const normDate = d => (d || "").slice(0, 10); // guards against a timestamp-suffixed date string
               const upcoming = reservations
-                .filter(r => r.status === "confirmed" && (r.date > today || (r.date === today && r.time >= nowTime)))
-                .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
+                .filter(r => r.status !== "cancelled" && r.status !== "seated")
+                .filter(r => {
+                  const rDate = normDate(r.date);
+                  return rDate > today || (rDate === today && (r.time || "00:00") >= nowTime);
+                })
+                .sort((a, b) => (normDate(a.date) + (a.time || "")).localeCompare(normDate(b.date) + (b.time || "")));
               if (upcoming.length === 0) return <div style={{ color: C.slate, fontSize: 13 }}>No upcoming bookings.</div>;
               return upcoming.map(r => (
                 <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", borderBottom: `1px solid ${C.line}` }}>
@@ -1666,8 +1675,10 @@ function BillHistoryTab({ billHistory, setBillHistory, setReceipt }) {
     if (!pendingAction) return;
     if (pendingAction.type === "refund") {
       setBillHistory(billHistory.map(b => b.id === pendingAction.id ? { ...b, status: "refunded" } : b));
+      updateBillStatus(pendingAction.id, "refunded").catch(err => console.error("Refund sync failed:", err));
     } else {
       setBillHistory(billHistory.filter(b => b.id !== pendingAction.id));
+      deleteBillRecord(pendingAction.id).catch(err => console.error("Bill delete sync failed:", err));
     }
     setPendingAction(null);
   }

@@ -124,6 +124,16 @@ export async function fetchOrderDrafts(restaurantId) {
   return data.map(d => d.data);
 }
 
+export async function updateBillStatus(id, status) {
+  const { error } = await supabase.from("bills").update({ status }).eq("id", id);
+  if (error) throw error;
+}
+
+export async function deleteBillRecord(id) {
+  const { error } = await supabase.from("bills").delete().eq("id", id);
+  if (error) throw error;
+}
+
 // Public, no-login menu fetch for the customer-facing menu page.
 // Only returns available items, ordered so specials show first.
 export async function fetchPublicMenu(restaurantId) {
@@ -218,6 +228,7 @@ export async function saveBill(restaurantId, bill) {
     status: bill.status,
     cashier_name: bill.cashier,
     payment_method: bill.paymentMethod || "Cash",
+    items: bill.items || [],
   });
   if (error) throw error;
 }
