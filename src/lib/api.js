@@ -208,7 +208,7 @@ export async function finishPool(poolTableId, order, hourlyRate) {
 // so no field renaming is needed at the call site. Doesn't require a real
 // `orders` row to exist in Supabase (order_id is left out / null).
 export async function saveBill(restaurantId, bill) {
-  const { error } = await supabase.from("bills").insert({
+  const { data, error } = await supabase.from("bills").insert({
     restaurant_id: restaurantId,
     order_type: bill.orderType,
     label: String(bill.label),
@@ -228,9 +228,11 @@ export async function saveBill(restaurantId, bill) {
     status: bill.status,
     cashier_name: bill.cashier,
     payment_method: bill.paymentMethod || "Cash",
+    bill_number: bill.billNumber || null,
     items: bill.items || [],
-  });
+  }).select().single();
   if (error) throw error;
+  return data; // includes the database-assigned bill_number
 }
 
 // ---------- ORDERS (kept for later use — order-in-progress isn't synced yet) ----------

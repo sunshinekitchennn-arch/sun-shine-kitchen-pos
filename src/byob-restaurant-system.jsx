@@ -221,6 +221,23 @@ export default function App({ restaurantId, cashierName: staffName, onLogout, on
     setWhatsappCounterState(value);
     try { localStorage.setItem("ssk_whatsapp_counter", JSON.stringify({ date: todayStr(), value })); } catch { /* storage unavailable, counter still works for this session */ }
   }
+  // Same daily-reset pattern for the customer-facing bill/receipt number —
+  // fixes it showing one number right after settling (e.g. "0030") but a
+  // completely different-looking code after a refresh.
+  const [billCounter, setBillCounterState] = useState(() => {
+    try {
+      const raw = localStorage.getItem("ssk_bill_counter");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed.date === todayStr()) return parsed.value;
+      }
+    } catch { /* ignore, fall through to default */ }
+    return 1;
+  });
+  function setBillCounter(value) {
+    setBillCounterState(value);
+    try { localStorage.setItem("ssk_bill_counter", JSON.stringify({ date: todayStr(), value })); } catch { /* storage unavailable, counter still works for this session */ }
+  }
   const [receipt, setReceipt] = useState(null);
   const [kitchenTicket, setKitchenTicket] = useState(null);
   const [cashierName, setCashierName] = useState(staffName || "");
@@ -251,7 +268,7 @@ export default function App({ restaurantId, cashierName: staffName, onLogout, on
         })));
         setBillHistory(billRows.map(b => ({
           id: b.id,
-          receiptNo: b.id.slice(0, 8).toUpperCase(),
+          receiptNo: b.bill_number ? String(b.bill_number).padStart(4, "0") : b.id.slice(0, 8).toUpperCase(),
           date: b.date,
           time: new Date(b.created_at).toTimeString().slice(0, 5),
           orderType: b.order_type,
@@ -296,10 +313,16 @@ export default function App({ restaurantId, cashierName: staffName, onLogout, on
   const firingCount = orders.flatMap(o => o.rounds).filter(r => r.status === "kitchen").length;
 
   function markRoundServed(orderId, roundId) {
-    setOrders(orders.map(o => o.id === orderId ? { ...o, rounds: o.rounds.map(r => r.id === roundId ? { ...r, status: "served" } : r) } : o));
+    const updated = orders.map(o => o.id === orderId ? { ...o, rounds: o.rounds.map(r => r.id === roundId ? { ...r, status: "served" } : r) } : o);
+    setOrders(updated);
+    const changedOrder = updated.find(o => o.id === orderId);
+    if (changedOrder && restaurantId) upsertOrderDraft(restaurantId, orderId, changedOrder).catch(err => console.error("Draft save failed:", err));
   }
   function undoRoundServed(orderId, roundId) {
-    setOrders(orders.map(o => o.id === orderId ? { ...o, rounds: o.rounds.map(r => r.id === roundId ? { ...r, status: "kitchen" } : r) } : o));
+    const updated = orders.map(o => o.id === orderId ? { ...o, rounds: o.rounds.map(r => r.id === roundId ? { ...r, status: "kitchen" } : r) } : o);
+    setOrders(updated);
+    const changedOrder = updated.find(o => o.id === orderId);
+    if (changedOrder && restaurantId) upsertOrderDraft(restaurantId, orderId, changedOrder).catch(err => console.error("Draft save failed:", err));
   }
 
   const lowStock = inventory.filter(i => i.qty <= i.threshold);
@@ -416,6 +439,7 @@ export default function App({ restaurantId, cashierName: staffName, onLogout, on
             corkageFee={corkageFee} serviceChargePct={serviceChargePct}
             takeawayCounter={takeawayCounter} setTakeawayCounter={setTakeawayCounter}
             whatsappCounter={whatsappCounter} setWhatsappCounter={setWhatsappCounter}
+            billCounter={billCounter} setBillCounter={setBillCounter}
             billHistory={billHistory} setBillHistory={setBillHistory} setReceipt={setReceipt}
             cashierName={cashierName} reservations={reservations} setReservations={setReservations}
             markRoundServed={markRoundServed} poolTables={poolTables} setPoolTables={setPoolTables}
@@ -426,6 +450,7 @@ export default function App({ restaurantId, cashierName: staffName, onLogout, on
             corkageFee={corkageFee} serviceChargePct={serviceChargePct}
             takeawayCounter={takeawayCounter} setTakeawayCounter={setTakeawayCounter}
             whatsappCounter={whatsappCounter} setWhatsappCounter={setWhatsappCounter}
+            billCounter={billCounter} setBillCounter={setBillCounter}
             billHistory={billHistory} setBillHistory={setBillHistory} setReceipt={setReceipt}
             cashierName={cashierName} reservations={reservations} setReservations={setReservations}
             markRoundServed={markRoundServed} poolTables={poolTables} setPoolTables={setPoolTables}
@@ -909,7 +934,7 @@ function ReservationsTab({ tables, setTables, reservations, setReservations, ord
 }
 
 /* ---------------- POS / Orders ---------------- */
-function POSTab({ tables, setTables, menu, orders, setOrders, corkageFee, serviceChargePct, takeawayCounter, setTakeawayCounter, whatsappCounter, setWhatsappCounter, billHistory, setBillHistory, setReceipt, cashierName, reservations, setReservations, markRoundServed, poolTables, setPoolTables, setKitchenTicket, restaurantId, addons, mode = "all" }) {
+function POSTab({ tables, setTables, menu, orders, setOrders, corkageFee, serviceChargePct, takeawayCounter, setTakeawayCounter, whatsappCounter, setWhatsappCounter, billCounter, setBillCounter, billHistory, setBillHistory, setReceipt, cashierName, reservations, setReservations, markRoundServed, poolTables, setPoolTables, setKitchenTicket, restaurantId, addons, mode = "all" }) {
   const [activeOrderId, setActiveOrderId] = useState(null);
   const activeOrder = orders.find(o => o.id === activeOrderId);
   const [menuFilter, setMenuFilter] = useState("All");
@@ -1137,7 +1162,8 @@ function POSTab({ tables, setTables, menu, orders, setOrders, corkageFee, servic
     });
     const bill = {
       id: uid("b"),
-      receiptNo: String(billHistory.length + 1).padStart(4, "0"),
+      receiptNo: String(billCounter).padStart(4, "0"),
+      billNumber: billCounter,
       date: todayStr(),
       time: now.toTimeString().slice(0, 5),
       orderType: activeOrder.orderType,
@@ -1157,6 +1183,7 @@ function POSTab({ tables, setTables, menu, orders, setOrders, corkageFee, servic
       status: "paid",
     };
     setBillHistory([bill, ...billHistory]);
+    setBillCounter(billCounter + 1);
     setOrders(orders.filter(o => o.id !== activeOrder.id));
     if (activeOrder.tableId) {
       setTables(tables.map(t => t.id === activeOrder.tableId ? { ...t, status: "available" } : t));

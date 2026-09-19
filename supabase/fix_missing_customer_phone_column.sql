@@ -3,6 +3,14 @@
 -- number), since the save always tries to include this column.
 alter table bills add column if not exists customer_phone text;
 alter table bills add column if not exists items jsonb;
+alter table bills add column if not exists bill_number integer;
+alter table bills add column if not exists bill_number int;
+
+-- A simple, short, sequential number for staff and customers to reference
+-- ("Bill #47") instead of the long random receipt code. The database
+-- assigns this automatically and safely even if more than one device is
+-- settling bills at the same time.
+alter table bills add column if not exists bill_number bigserial;
 alter table bills add column if not exists items jsonb default '[]'::jsonb;
 
 -- ============================================================
